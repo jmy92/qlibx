@@ -1,0 +1,93 @@
+﻿# meta: {"name": "Localformer", "group": "深度学习", "description": "Transformer 的局部注意力改进版，官方基准中优于原版。", "requires_gpu": true, "params_schema": {"start_date": {"label": "数据开始日期", "type": "date", "default": "2008-01-01", "tip": "特征计算与训练使用的最早日期"}, "end_date": {"label": "数据结束日期", "type": "date", "default": "2020-08-01", "tip": "回测截止日期，之后的数据不使用"}, "market": {"label": "股票池", "type": "select", "options": ["csi300", "csi500"], "default": "csi300", "tip": "csi300=沪深300，csi500=中证500"}, "account": {"label": "初始资金", "type": "number", "default": 100000000, "tip": "回测账户的初始金额（元）"}, "topk": {"label": "持仓数量", "type": "number", "default": 50, "tip": "每次持有评分最高的前 N 只股票"}, "n_drop": {"label": "每期卖出数", "type": "number", "default": 5, "tip": "每次调仓卖出排名靠后的几只股票"}}}
+# ============================================================
+# 模板说明：占位符由后端渲染时替换，请勿直接运行本文件
+# 占位符列表：{{START_DATE}} {{TRAIN_END}} {{TEST_START}} {{END_DATE}}
+#             {{FIT_START}} {{FIT_END}} {{MARKET}} {{ACCOUNT}} {{TOPK}} {{N_DROP}}
+# ============================================================
+qlib_init:
+    provider_uri: "{{DATA_DIR}}/cn_data"
+    region: cn
+market: &market {{MARKET}}
+benchmark: &benchmark SH000300
+data_handler_config: &data_handler_config
+    start_time: {{START_DATE}}
+    end_time: {{END_DATE}}
+    fit_start_time: {{START_DATE}}
+    fit_end_time: {{FIT_END}}
+    instruments: *market
+    infer_processors:
+        - class: FilterCol
+          kwargs:
+              fields_group: feature
+              col_list: ["RESI5", "WVMA5", "RSQR5", "KLEN", "RSQR10", "CORR5", "CORD5", "CORR10", 
+                            "ROC60", "RESI10", "VSTD5", "RSQR60", "CORR60", "WVMA60", "STD5", 
+                            "RSQR20", "CORD60", "CORD10", "CORR20", "KLOW"
+                        ]
+        - class: RobustZScoreNorm
+          kwargs:
+              fields_group: feature
+              clip_outlier: true
+        - class: Fillna
+          kwargs:
+              fields_group: feature
+    learn_processors:
+        - class: DropnaLabel
+        - class: CSRankNorm
+          kwargs:
+              fields_group: label
+    label: ["Ref($close, -2) / Ref($close, -1) - 1"] 
+
+port_analysis_config: &port_analysis_config
+    strategy:
+        class: TopkDropoutStrategy
+        module_path: qlib.contrib.strategy
+        kwargs:
+            signal: <PRED>
+            topk: {{TOPK}}
+            n_drop: {{N_DROP}}
+    backtest:
+        start_time: {{TEST_START}}
+        end_time: {{END_DATE}}
+        account: {{ACCOUNT}}
+        benchmark: *benchmark
+        exchange_kwargs:
+            limit_threshold: 0.095
+            deal_price: close
+            open_cost: 0.0005
+            close_cost: 0.0015
+            min_cost: 5
+task:
+    model:
+        class: LocalformerModel
+        module_path: qlib.contrib.model.pytorch_localformer_ts
+        kwargs:
+            seed: 0
+            n_jobs: 20
+    dataset:
+        class: TSDatasetH
+        module_path: qlib.data.dataset
+        kwargs:
+            handler:
+                class: Alpha158
+                module_path: qlib.contrib.data.handler
+                kwargs: *data_handler_config
+            segments:
+                train: [{{START_DATE}}, {{TRAIN_END}}]
+                valid: [{{TRAIN_END}}, {{TEST_START}}]
+                test: [{{TEST_START}}, {{END_DATE}}]
+            step_len: 20
+    record: 
+        - class: SignalRecord
+          module_path: qlib.workflow.record_temp
+          kwargs: 
+              model: <MODEL>
+              dataset: <DATASET>
+        - class: SigAnaRecord
+          module_path: qlib.workflow.record_temp
+          kwargs: 
+              ana_long_short: False
+              ann_scaler: 252
+        - class: PortAnaRecord
+          module_path: qlib.workflow.record_temp
+          kwargs: 
+              config: *port_analysis_config

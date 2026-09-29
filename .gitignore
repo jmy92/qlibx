@@ -52,3 +52,24 @@ node_modules/
 ./pretrain
 .idea/
 .aider*
+
+# ---- 本地自研部分（Qlib 量化实验平台 UI）----
+
+# 前端构建产物与依赖
+ui-project/frontend/node_modules/
+ui-project/frontend/dist/
+*.tsbuildinfo
+
+# 实验运行产物（mlruns 已有全局规则，这里补齐 workspace 与日志）
+ui-project/backend/workspace/
+ui-project/backend/*.log
+ui-project/frontend/*.log
+ui-project/frontend/*.err.log
+
+# 行情数据与下载缓存（体积大，不入库）
+ui-project/data/
+ui-project/backend/peak_bin.py
+
+# Python 字节码与缓存（UI 后端）
+ui-project/backend/__pycache__/
+
